@@ -4,30 +4,33 @@ import { ValidationPipe } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import express from 'express';
 
-// 1. Create a standalone Express instance
-const server = express();
+// 1. Create a variable to hold the compiled server so it doesn't reboot on every single click
+let cachedServer: express.Express;
 
 async function bootstrap() {
-  // 2. Connect NestJS to the Express instance
-  const app = await NestFactory.create(AppModule, new ExpressAdapter(server));
+  // 2. Only build the app if it hasn't been built yet
+  if (!cachedServer) {
+    const server = express();
+    const app = await NestFactory.create(AppModule, new ExpressAdapter(server));
 
-  // Your existing validation pipes
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
 
-  // Enable CORS so your React frontend can talk to it
-  app.enableCors();
+    app.enableCors();
 
-  // 3. Initialize the app INSTEAD of listening on a port
-  await app.init();
+    await app.init();
+    cachedServer = server;
+  }
+  return cachedServer;
 }
 
-bootstrap();
-
-// 4. Export the server so Vercel can route traffic to it
-export default server;
+// 3. This is the magic Vercel Handler. It waits for bootstrap, THEN handles the request.
+export default async function handler(req: any, res: any) {
+  const server = await bootstrap();
+  return server(req, res);
+}
